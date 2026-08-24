@@ -11,24 +11,24 @@ import { useAuth } from '../../context/AuthContext';
 import { API_BASE_URL } from '../../utils/constants';
 
 const T = {
-  primary:    '#0D9488',
-  tealDark:   '#0F766E',
-  tealBg:     '#F0FDFA',
+  primary: '#0D9488',
+  tealDark: '#0F766E',
+  tealBg: '#F0FDFA',
   tealBorder: '#CCFBF1',
-  bg:         '#FFFFFF',
-  screenBg:   '#F8FAFC',
-  text:       '#0F172A',
-  sub:        '#64748B',
-  muted:      '#94A3B8',
-  border:     '#E2E8F0',
-  green:      '#10B981',
-  warning:    '#F59E0B',
-  danger:     '#EF4444',
+  bg: '#FFFFFF',
+  screenBg: '#F8FAFC',
+  text: '#0F172A',
+  sub: '#64748B',
+  muted: '#94A3B8',
+  border: '#E2E8F0',
+  green: '#10B981',
+  warning: '#F59E0B',
+  danger: '#EF4444',
 };
 
 function getGreeting(): string {
   const h = new Date().getHours();
-  if (h >= 5  && h < 12) return 'Good Morning 🌅';
+  if (h >= 5 && h < 12) return 'Good Morning 🌅';
   if (h >= 12 && h < 17) return 'Good Afternoon ☀️';
   if (h >= 17 && h < 21) return 'Good Evening 🌆';
   return 'Good Night 🌙';
@@ -45,6 +45,7 @@ interface SampleRow {
   BarcodeID: string; Drname: string; CenterName: string;
   IspheboAccept: number; Isemergency: boolean;
   TestCharges: number; tests: string[];
+  patmstids: number[];
 }
 
 const TABS = ['Pending', 'Collected', 'All'];
@@ -53,19 +54,28 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
 
-  const [samples,    setSamples]    = useState<SampleRow[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const [samples, setSamples] = useState<SampleRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [search,     setSearch]     = useState('');
-  const [activeTab,  setActiveTab]  = useState('Pending');
-  const [selected,   setSelected]   = useState<SampleRow | null>(null);
+  const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('Pending');
+  const [selected, setSelected] = useState<SampleRow | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
     try {
       const today = new Date().toISOString().split('T')[0];
-      const res = await fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {
-        method:  'POST',
+
+      // 1. Fetch from PhlebotomistList (has Patmstid and IspheboAccept)
+      const phleboPromise = fetch(`${API_BASE_URL}/api/Phlebotomist/GetPhlebotomistList`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ BranchId: 1, FromDate: today, ToDate: today }),
+      }).then(r => r.json()).catch(() => []);
+
+      // 2. Fetch from TestStatus
+      const statusPromise = fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           BranchId: 1, FromDate: today, ToDate: today,
@@ -73,67 +83,84 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
           TestName: '', MobileNo: '', Barcode: '', CenterCode: '',
           SubDepartment: '', Status: 'All',
         }),
-      });
-      const data = await res.json();
-      const rows: any[] = Array.isArray(data) ? data : (data?.value ?? []);
+      }).then(r => r.json()).catch(() => []);
+
+      const [phleboData, statusData] = await Promise.all([phleboPromise, statusPromise]);
+
+      const pList: any[] = Array.isArray(phleboData) ? phleboData : (phleboData?.value ?? []);
+      const sList: any[] = Array.isArray(statusData) ? statusData : (statusData?.value ?? []);
+
       const map = new Map<number, SampleRow>();
-      for (const r of rows) {
-        if (map.has(r.PID)) { map.get(r.PID)!.tests.push(r.MainTestName); }
-        else {
-          map.set(r.PID, {
-            PID:           r.PID, PatRegID:      r.PatRegID,
-            PatientName:   r.PatientName ?? r.Patname ?? '—',
-            Patphoneno:    r.Patphoneno  ?? '—',
-            Status:        r.Status      ?? 'Registered',
-            Patregdate:    r.Patregdate  ?? '',
-            BarcodeID:     r.BarcodeID   ?? '—',
-            Drname:        (r.Drname || r.RefDoctor || r.RefDr || r.DoctorName || r.OtherRefDoctor || 'Self').trim(),
-            CenterName:    r.CenterName  ?? '—',
+
+      // Populate from PhlebotomistList first
+      for (const r of pList) {
+        const pid = Number(r.PID || r.PPID || r.RegID);
+        if (!pid) continue;
+
+        if (map.has(pid)) {
+          const existing = map.get(pid)!;
+          if (r.TestName && !existing.tests.includes(r.TestName)) {
+            existing.tests.push(r.TestName);
+          }
+          if (r.Patmstid && !existing.patmstids.includes(Number(r.Patmstid))) {
+            existing.patmstids.push(Number(r.Patmstid));
+          }
+          if (r.IspheboAccept > 0) {
+            existing.IspheboAccept = r.IspheboAccept;
+          }
+        } else {
+          map.set(pid, {
+            PID: pid,
+            PatRegID: Number(r.RegID || r.PPID || pid),
+            PatientName: r.PatientName ?? '—',
+            Patphoneno: r.PatPhoneNo ?? '—',
+            Status: r.IspheboAccept > 0 ? 'Sample Collected' : 'Registered',
+            Patregdate: r.PatRegDate ?? '',
+            BarcodeID: r.Barcode ?? '—',
+            Drname: (r.RefDoctor || r.DoctorName || 'Self').trim(),
+            CenterName: r.Center ?? '—',
             IspheboAccept: r.IspheboAccept ?? 0,
-            Isemergency:   r.Isemergency  ?? false,
-            TestCharges:   r.TestCharges  ?? 0,
-            tests: [r.MainTestName],
+            Isemergency: false,
+            TestCharges: 0,
+            tests: r.TestName ? [r.TestName] : [],
+            patmstids: r.Patmstid ? [Number(r.Patmstid)] : [],
           });
         }
       }
 
-      // 2. Fetch all registered patients from GetGrid to catch those without tests
-      try {
-        const res2 = await fetch(`${API_BASE_URL}/api/EditPatient/GetGrid`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({
-            BranchId: 1, FromDate: `${today}T00:00:00`, ToDate: `${today}T23:59:59`,
-            PageNo: 1, PageSize: 100, CenterName: '', PatientName: '', MobileNo: '', PatRegID: 0
-          }),
-        });
-        const data2 = await res2.json();
-        let rows2: any[] = [];
-        if (data2?.Table0 && Array.isArray(data2.Table0)) rows2 = data2.Table0;
-        else if (data2?.GridData && Array.isArray(data2.GridData)) rows2 = data2.GridData;
-        else if (Array.isArray(data2)) rows2 = data2;
+      // Merge from TestStatus
+      for (const r of sList) {
+        const pid = Number(r.PID || r.PatRegID);
+        if (!pid) continue;
 
-        for (const r of rows2) {
-          const pid = r.PID || r.PatRegID;
-          if (pid && !map.has(pid)) {
-            map.set(pid, {
-              PID:           pid, PatRegID: r.PatRegID || r.PID,
-              PatientName:   r.PatientName ?? r.Name ?? r.Patname ?? '—',
-              Patphoneno:    r.MobileNo ?? r.Patphoneno ?? '—',
-              Status:        'Registered',
-              Patregdate:    r.Patregdate  ?? '',
-              BarcodeID:     '—',
-              Drname:        '—',
-              CenterName:    r.CenterName  ?? '—',
-              IspheboAccept: 0,
-              Isemergency:   false,
-              TestCharges:   0,
-              tests:         ['No Test Added'],
-            });
+        if (map.has(pid)) {
+          const existing = map.get(pid)!;
+          if (r.MainTestName && !existing.tests.includes(r.MainTestName)) {
+            existing.tests.push(r.MainTestName);
           }
+          if (r.Isemergency) existing.Isemergency = true;
+          if (r.TestCharges) existing.TestCharges = r.TestCharges;
+          if (r.IspheboAccept > 0) existing.IspheboAccept = r.IspheboAccept;
+          if (r.BarcodeID && existing.BarcodeID === '—') existing.BarcodeID = r.BarcodeID;
+          if (r.Drname && existing.Drname === 'Self') existing.Drname = (r.Drname || 'Self').trim();
+        } else {
+          map.set(pid, {
+            PID: pid,
+            PatRegID: Number(r.PatRegID || pid),
+            PatientName: r.PatientName ?? r.Patname ?? '—',
+            Patphoneno: r.Patphoneno ?? '—',
+            Status: r.Status ?? 'Registered',
+            Patregdate: r.Patregdate ?? '',
+            BarcodeID: r.BarcodeID ?? '—',
+            Drname: (r.Drname || r.RefDoctor || r.RefDr || r.DoctorName || r.OtherRefDoctor || 'Self').trim(),
+            CenterName: r.CenterName ?? '—',
+            IspheboAccept: r.IspheboAccept ?? 0,
+            Isemergency: r.Isemergency ?? false,
+            TestCharges: r.TestCharges ?? 0,
+            tests: r.MainTestName ? [r.MainTestName] : [],
+            patmstids: [],
+          });
         }
-      } catch (e) {
-        console.log('[PhlebotomistHome] GetGrid fetch failed:', e);
       }
 
       setSamples(Array.from(map.values()));
@@ -142,22 +169,70 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
     } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); return () => {}; }, [load]));
+  useFocusEffect(useCallback(() => { load(); return () => { }; }, [load]));
+
+  // Collect / Accept sample handler
+  const handleCollectSample = async (item: SampleRow) => {
+    const collectorName = (user?.name || (user as any)?.username || (user as any)?.FullName || 'Phlebotomist').trim();
+
+    Alert.alert(
+      'Collect Sample',
+      `Mark sample for ${item.PatientName} as collected by ${collectorName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm & Collect',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const patmstidsToAccept = item.patmstids && item.patmstids.length > 0
+                ? item.patmstids
+                : [item.PID];
+
+              // Call AcceptSample for each Patmstid
+              for (const patmstid of patmstidsToAccept) {
+                await fetch(`${API_BASE_URL}/api/Phlebotomist/AcceptSample`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                  body: JSON.stringify({
+                    Patmstid: Number(patmstid),
+                    BranchId: 1,
+                    UserName: collectorName,
+                    PhleboName: collectorName,
+                    PhlebotomistName: collectorName,
+                    PhlebotomistBy: collectorName,
+                  }),
+                });
+              }
+
+              Alert.alert('Success', `Sample collected successfully by ${collectorName}.`);
+              load(true);
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to collect sample');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const displayed = samples.filter(s => {
     const q = search.toLowerCase();
     const searchOk = s.PatientName.toLowerCase().includes(q) ||
-                     s.Patphoneno.includes(q) || s.BarcodeID.includes(q);
-    const tabOk = activeTab === 'All'       ? true
-                : activeTab === 'Pending'   ? s.IspheboAccept === 0
-                : activeTab === 'Collected' ? s.IspheboAccept === 2
-                : true;
+      s.Patphoneno.includes(q) || s.BarcodeID.includes(q);
+    const isCollected = s.IspheboAccept > 0;
+    const tabOk = activeTab === 'All' ? true
+      : activeTab === 'Pending' ? !isCollected
+        : activeTab === 'Collected' ? isCollected
+          : true;
     return searchOk && tabOk;
   });
 
-  const pending   = samples.filter(s => s.IspheboAccept === 0).length;
-  const collected = samples.filter(s => s.IspheboAccept === 2).length;
-  const urgent    = samples.filter(s => s.Isemergency).length;
+  const pending = samples.filter(s => s.IspheboAccept === 0).length;
+  const collected = samples.filter(s => s.IspheboAccept > 0).length;
+  const urgent = samples.filter(s => s.Isemergency).length;
 
   return (
     <View style={[s.root, { paddingTop: Math.max(insets.top, 0) }]}>
@@ -251,7 +326,7 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
           }
           ListFooterComponent={<View style={{ height: 100 }} />}
           renderItem={({ item }) => {
-            const isCollected = item.IspheboAccept === 2;
+            const isCollected = item.IspheboAccept > 0;
             return (
               <TouchableOpacity style={s.card} onPress={() => setSelected(item)} activeOpacity={0.8}>
                 {/* Top */}
@@ -265,7 +340,7 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
                       {item.Isemergency && <BlinkingEmergencyBulb size={18} />}
                     </View>
                     <Text style={s.pid}>
-                      PT{String(item.PatRegID).padStart(6,'0')}  •  Barcode: {item.BarcodeID}
+                      PT{String(item.PatRegID).padStart(6, '0')}  •  Barcode: {item.BarcodeID}
                     </Text>
                     <View style={s.metaRow}>
                       <Feather name="phone" size={11} color={T.muted} />
@@ -297,11 +372,13 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
                   <View style={s.actionDivider} />
                   <TouchableOpacity
                     style={s.actionBtn}
-                    onPress={() => Alert.alert(
-                      isCollected ? 'Already Collected' : 'Mark Collected',
-                      isCollected ? 'Already marked.' : `Mark ${item.PatientName}'s sample as collected?`,
-                      [{ text: 'Cancel', style: 'cancel' }, { text: 'Confirm', onPress: () => {} }]
-                    )}>
+                    onPress={() => {
+                      if (isCollected) {
+                        Alert.alert('Already Collected', `Sample for ${item.PatientName} has already been collected.`);
+                      } else {
+                        handleCollectSample(item);
+                      }
+                    }}>
                     <Feather name={isCollected ? 'check-circle' : 'droplet'} size={14} color={isCollected ? T.green : T.primary} />
                     <Text style={[s.actionText, isCollected && { color: T.green }]}>
                       {isCollected ? 'Collected' : 'Collect'}
@@ -334,18 +411,18 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
                       {selected.Isemergency && <BlinkingEmergencyBulb size={18} />}
                     </View>
                     <Text style={{ fontSize: 12, color: T.primary, fontWeight: '600', marginTop: 2 }}>
-                      PT{String(selected.PatRegID).padStart(6,'0')}
+                      PT{String(selected.PatRegID).padStart(6, '0')}
                     </Text>
                   </View>
                 </View>
                 {[
-                  ['Barcode',   selected.BarcodeID],
-                  ['Doctor',    ((selected.Drname && selected.Drname !== '—' ? selected.Drname : 'Self') ?? 'Self').trim()],
-                  ['Center',    selected.CenterName],
-                  ['Mobile',    selected.Patphoneno],
-                  ['Reg Date',  fmtDate(selected.Patregdate)],
-                  ['Tests',     selected.tests.join(', ')],
-                  ['Charges',   `₹${(selected.TestCharges ?? 0).toFixed(0)}`],
+                  ['Barcode', selected.BarcodeID],
+                  ['Doctor', ((selected.Drname && selected.Drname !== '—' ? selected.Drname : 'Self') ?? 'Self').trim()],
+                  ['Center', selected.CenterName],
+                  ['Mobile', selected.Patphoneno],
+                  ['Reg Date', fmtDate(selected.Patregdate)],
+                  ['Tests', selected.tests.join(', ')],
+                  ['Charges', `₹${(selected.TestCharges ?? 0).toFixed(0)}`],
                 ].map(([label, value]) => (
                   <View key={label} style={s.detailRow}>
                     <Text style={s.detailLabel}>{label}</Text>
@@ -377,69 +454,69 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
 }
 
 const s = StyleSheet.create({
-  root:          { flex: 1, backgroundColor: T.screenBg },
+  root: { flex: 1, backgroundColor: T.screenBg },
 
   // Header
-  headerBand:    { backgroundColor: T.primary, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
-  greeting:      { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '500' },
-  userName:      { fontSize: 20, fontWeight: '800', color: '#FFF', marginTop: 2 },
-  labRow:        { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-  labName:       { fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
-  headerRight:   { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  iconBtn:       { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  headerBand: { backgroundColor: T.primary, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
+  greeting: { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '500' },
+  userName: { fontSize: 20, fontWeight: '800', color: '#FFF', marginTop: 2 },
+  labRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  labName: { fontSize: 11, color: 'rgba(255,255,255,0.75)', fontWeight: '500' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  iconBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
 
   // Stats
-  statsGrid:     { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
-  statCard:      { flex: 1, borderRadius: 14, borderWidth: 1, padding: 12, alignItems: 'flex-start' },
-  statIconBox:   { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 },
-  statValue:     { fontSize: 22, fontWeight: '800' },
-  statLabel:     { fontSize: 11, color: T.sub, fontWeight: '500', marginTop: 2 },
+  statsGrid: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
+  statCard: { flex: 1, borderRadius: 14, borderWidth: 1, padding: 12, alignItems: 'flex-start' },
+  statIconBox: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 },
+  statValue: { fontSize: 22, fontWeight: '800' },
+  statLabel: { fontSize: 11, color: T.sub, fontWeight: '500', marginTop: 2 },
 
   // Search
-  searchBar:     { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border, borderRadius: 12, paddingHorizontal: 12, height: 44 },
-  searchInput:   { flex: 1, fontSize: 13, color: T.text },
+  searchBar: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: T.bg, borderWidth: 1, borderColor: T.border, borderRadius: 12, paddingHorizontal: 12, height: 44 },
+  searchInput: { flex: 1, fontSize: 13, color: T.text },
 
   // Tabs
-  tabsWrap:      { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 8 },
-  tabBtn:        { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg },
-  tabBtnActive:  { backgroundColor: T.primary, borderColor: T.primary },
-  tabText:       { fontSize: 13, color: T.sub, fontWeight: '500' },
+  tabsWrap: { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 8 },
+  tabBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: T.border, backgroundColor: T.bg },
+  tabBtnActive: { backgroundColor: T.primary, borderColor: T.primary },
+  tabText: { fontSize: 13, color: T.sub, fontWeight: '500' },
   tabTextActive: { color: '#FFF', fontWeight: '700' },
 
   // List
-  list:          { paddingHorizontal: 16 },
-  centre:        { alignItems: 'center', paddingTop: 60 },
-  centreText:    { fontSize: 14, color: T.sub, marginTop: 10 },
+  list: { paddingHorizontal: 16 },
+  centre: { alignItems: 'center', paddingTop: 60 },
+  centreText: { fontSize: 14, color: T.sub, marginTop: 10 },
 
   // Card
-  card:          { backgroundColor: T.bg, borderRadius: 14, borderWidth: 1, borderColor: T.border, marginBottom: 12, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6 },
-  cardTop:       { flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderBottomWidth: 1, borderBottomColor: T.border },
-  avatar:        { width: 44, height: 44, borderRadius: 22, backgroundColor: T.tealBg, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  avatarText:    { fontSize: 18, fontWeight: '800', color: T.tealDark },
-  name:          { fontSize: 14, fontWeight: '700', color: T.text, marginBottom: 2 },
-  pid:           { fontSize: 11.5, color: T.sub, marginBottom: 3 },
-  metaRow:       { flexDirection: 'row', alignItems: 'center' },
-  metaText:      { fontSize: 11, color: T.muted, marginLeft: 3 },
-  statusBadge:   { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-  statusDot:     { width: 7, height: 7, borderRadius: 4, marginRight: 5 },
-  statusText:    { fontSize: 10, fontWeight: '700' },
-  urgentBadge:   { backgroundColor: '#FEE2E2', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
-  urgentText:    { fontSize: 9, fontWeight: '800', color: T.danger },
-  testsRow:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: T.border },
-  testsText:     { flex: 1, fontSize: 12, color: T.sub },
-  actionsRow:    { flexDirection: 'row', alignItems: 'center' },
-  actionBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 11 },
-  actionText:    { fontSize: 12, fontWeight: '600', color: T.primary },
+  card: { backgroundColor: T.bg, borderRadius: 14, borderWidth: 1, borderColor: T.border, marginBottom: 12, elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 6 },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderBottomWidth: 1, borderBottomColor: T.border },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.tealBg, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  avatarText: { fontSize: 18, fontWeight: '800', color: T.tealDark },
+  name: { fontSize: 14, fontWeight: '700', color: T.text, marginBottom: 2 },
+  pid: { fontSize: 11.5, color: T.sub, marginBottom: 3 },
+  metaRow: { flexDirection: 'row', alignItems: 'center' },
+  metaText: { fontSize: 11, color: T.muted, marginLeft: 3 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  statusDot: { width: 7, height: 7, borderRadius: 4, marginRight: 5 },
+  statusText: { fontSize: 10, fontWeight: '700' },
+  urgentBadge: { backgroundColor: '#FEE2E2', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
+  urgentText: { fontSize: 9, fontWeight: '800', color: T.danger },
+  testsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: T.border },
+  testsText: { flex: 1, fontSize: 12, color: T.sub },
+  actionsRow: { flexDirection: 'row', alignItems: 'center' },
+  actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 11 },
+  actionText: { fontSize: 12, fontWeight: '600', color: T.primary },
   actionDivider: { width: 1, height: 18, backgroundColor: T.border },
 
   // Sheet
-  overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sheet:         { backgroundColor: T.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, maxHeight: '88%' },
-  drag:          { width: 36, height: 4, backgroundColor: T.border, borderRadius: 2, alignSelf: 'center', marginBottom: 18 },
-  closeBtn:      { position: 'absolute', top: 18, right: 18, zIndex: 1 },
-  detailRow:     { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  detailLabel:   { width: 76, fontSize: 12, color: T.sub, fontWeight: '600' },
-  detailValue:   { flex: 1, fontSize: 13, color: T.text, fontWeight: '600' },
-  collectBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: T.primary, borderRadius: 12, paddingVertical: 14, marginTop: 18, gap: 8 },
-  collectBtnText:{ color: '#FFF', fontSize: 15, fontWeight: '700' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: T.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, maxHeight: '88%' },
+  drag: { width: 36, height: 4, backgroundColor: T.border, borderRadius: 2, alignSelf: 'center', marginBottom: 18 },
+  closeBtn: { position: 'absolute', top: 18, right: 18, zIndex: 1 },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  detailLabel: { width: 76, fontSize: 12, color: T.sub, fontWeight: '600' },
+  detailValue: { flex: 1, fontSize: 13, color: T.text, fontWeight: '600' },
+  collectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: T.primary, borderRadius: 12, paddingVertical: 14, marginTop: 18, gap: 8 },
+  collectBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
 });

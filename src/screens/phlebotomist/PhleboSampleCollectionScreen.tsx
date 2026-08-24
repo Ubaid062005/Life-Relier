@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import BlinkingEmergencyBulb from '../../components/BlinkingEmergencyBulb';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAuth } from '../../context/AuthContext';
 import { COLORS, API_BASE_URL } from '../../utils/constants';
 
 const T = {
@@ -14,6 +15,7 @@ const T = {
 
 export default function PhleboSampleCollectionScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [data, setData] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -22,8 +24,14 @@ export default function PhleboSampleCollectionScreen({ navigation }: any) {
     setLoading(true);
     try {
       const today = new Date().toISOString().split('T')[0];
-      const res = await fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {
-        method:  'POST',
+      const phleboPromise = fetch(`${API_BASE_URL}/api/Phlebotomist/GetPhlebotomistList`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ BranchId: 1, FromDate: today, ToDate: today }),
+      }).then(r => r.json()).catch(() => []);
+
+      const statusPromise = fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           BranchId: 1, FromDate: today, ToDate: today,
@@ -31,32 +39,58 @@ export default function PhleboSampleCollectionScreen({ navigation }: any) {
           TestName: '', MobileNo: '', Barcode: '', CenterCode: '',
           SubDepartment: '', Status: 'All',
         }),
-      });
-      const resData = await res.json();
-      const rows = Array.isArray(resData) ? resData : (resData?.value ?? []);
-      
+      }).then(r => r.json()).catch(() => []);
+
+      const [phleboData, statusData] = await Promise.all([phleboPromise, statusPromise]);
+      const pList: any[] = Array.isArray(phleboData) ? phleboData : (phleboData?.value ?? []);
+      const sList: any[] = Array.isArray(statusData) ? statusData : (statusData?.value ?? []);
+
       const map = new Map<number, any>();
-      for (const r of rows) {
-        if (map.has(r.PID)) {
-          map.get(r.PID)!.test += `, ${r.MainTestName}`;
+
+      for (const r of pList) {
+        const pid = Number(r.PID || r.PPID || r.RegID);
+        if (!pid) continue;
+
+        if (map.has(pid)) {
+          const existing = map.get(pid)!;
+          if (r.TestName && !existing.test.includes(r.TestName)) {
+            existing.test += `, ${r.TestName}`;
+          }
+          if (r.Patmstid && !existing.patmstids.includes(Number(r.Patmstid))) {
+            existing.patmstids.push(Number(r.Patmstid));
+          }
+          if (r.IspheboAccept > 0) existing.isPhleboAccept = r.IspheboAccept;
         } else {
-          map.set(r.PID, {
-            id: r.PatRegID?.toString() || r.PID?.toString(),
-            name: r.PatientName ?? r.Patname ?? '—',
-            gender: r.sex ?? 'Unknown',
-            age: r.Age ? `${r.Age} ${r.MDY || 'Year'}` : '—',
-            center: r.CenterName ?? '—',
-            doc: (r.Drname || r.RefDoctor || r.RefDr || r.DoctorName || r.OtherRefDoctor || 'Self').trim(),
-            test: r.MainTestName ?? '',
-            type: 'Whole Blood', // API doesn't seem to return sample type reliably
-            barcode: r.BarcodeID ?? '',
+          map.set(pid, {
+            PID: pid,
+            id: r.RegID?.toString() || r.PPID?.toString() || pid.toString(),
+            name: r.PatientName ?? '—',
+            gender: r.Gender ?? 'Unknown',
+            age: r.Age ?? '—',
+            center: r.Center ?? '—',
+            doc: (r.RefDoctor || r.DoctorName || 'Self').trim(),
+            test: r.TestName ?? '',
+            type: r.SampleType || 'Whole Blood',
+            barcode: r.Barcode ?? '',
             isPhleboAccept: r.IspheboAccept ?? 0,
-            isEmergency: r.Isemergency ?? false,
+            isEmergency: false,
+            patmstids: r.Patmstid ? [Number(r.Patmstid)] : [],
           });
         }
       }
-      
-      // Filter for those waiting for sample collection (e.g. IspheboAccept === 0)
+
+      for (const r of sList) {
+        const pid = Number(r.PID || r.PatRegID);
+        if (!pid) continue;
+
+        if (map.has(pid)) {
+          const existing = map.get(pid)!;
+          if (r.Isemergency) existing.isEmergency = true;
+          if (r.IspheboAccept > 0) existing.isPhleboAccept = r.IspheboAccept;
+        }
+      }
+
+      // Filter for those waiting for sample collection (e.g. isPhleboAccept === 0)
       const list = Array.from(map.values()).filter(x => x.isPhleboAccept === 0);
       setData(list);
     } catch (e: any) {
@@ -66,7 +100,38 @@ export default function PhleboSampleCollectionScreen({ navigation }: any) {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); return () => {}; }, [load]));
+  useFocusEffect(useCallback(() => { load(); return () => { }; }, [load]));
+
+  const handleAccept = async (item: any) => {
+    const collectorName = (user?.name || (user as any)?.username || (user as any)?.FullName || 'Phlebotomist').trim();
+    try {
+      setLoading(true);
+      const patmstidsToAccept = item.patmstids && item.patmstids.length > 0
+        ? item.patmstids
+        : [item.PID || item.id];
+
+      for (const patmstid of patmstidsToAccept) {
+        await fetch(`${API_BASE_URL}/api/Phlebotomist/AcceptSample`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            Patmstid: Number(patmstid),
+            BranchId: 1,
+            UserName: collectorName,
+            PhleboName: collectorName,
+            PhlebotomistName: collectorName,
+            PhlebotomistBy: collectorName,
+          }),
+        });
+      }
+      Alert.alert('Success', `Sample accepted by ${collectorName}`);
+      load();
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to accept sample');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const renderItem = ({ item }: { item: any }) => (
     <View style={s.card}>
@@ -84,19 +149,19 @@ export default function PhleboSampleCollectionScreen({ navigation }: any) {
           <Text style={s.subInfo}>{item.gender}, {item.age} • Dr. {item.doc}</Text>
         </View>
       </View>
-      <Text style={s.testName}><Text style={{fontWeight: '700'}}>Test:</Text> {item.test}</Text>
-      <Text style={s.sampleType}><Text style={{fontWeight: '700'}}>Sample:</Text> {item.type || 'N/A'}</Text>
-      
+      <Text style={s.testName}><Text style={{ fontWeight: '700' }}>Test:</Text> {item.test}</Text>
+      <Text style={s.sampleType}><Text style={{ fontWeight: '700' }}>Sample:</Text> {item.type || 'N/A'}</Text>
+
       <View style={s.actionRow}>
         <View style={s.barcodeBox}>
           <Text style={s.barcodeText}>{item.barcode || 'Enter Barcode'}</Text>
         </View>
         <TouchableOpacity style={s.saveBtn}><Feather name="save" size={16} color="#FFF" /></TouchableOpacity>
       </View>
-      
+
       <View style={s.footerActions}>
-        <TouchableOpacity style={s.acceptBtn}>
-          <Feather name="check" size={16} color="#FFF" style={{marginRight: 4}} />
+        <TouchableOpacity style={s.acceptBtn} onPress={() => handleAccept(item)}>
+          <Feather name="check" size={16} color="#FFF" style={{ marginRight: 4 }} />
           <Text style={s.acceptText}>Accept</Text>
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -115,7 +180,7 @@ export default function PhleboSampleCollectionScreen({ navigation }: any) {
         </TouchableOpacity>
         <Text style={s.title}>Phlebotomist List</Text>
       </View>
-      
+
       <View style={s.searchContainer}>
         <Feather name="search" size={18} color={T.sub} />
         <TextInput

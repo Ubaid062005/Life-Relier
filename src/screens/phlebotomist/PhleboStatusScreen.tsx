@@ -21,8 +21,14 @@ export default function PhleboStatusScreen({ navigation }: any) {
     setLoading(true);
     try {
       const today = new Date().toISOString().split('T')[0];
-      const res = await fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {
-        method:  'POST',
+      const phleboPromise = fetch(`${API_BASE_URL}/api/Phlebotomist/GetPhlebotomistList`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ BranchId: 1, FromDate: today, ToDate: today }),
+      }).then(r => r.json()).catch(() => []);
+
+      const statusPromise = fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           BranchId: 1, FromDate: today, ToDate: today,
@@ -30,30 +36,80 @@ export default function PhleboStatusScreen({ navigation }: any) {
           TestName: '', MobileNo: '', Barcode: '', CenterCode: '',
           SubDepartment: '', Status: 'All',
         }),
-      });
-      const resData = await res.json();
-      const rows = Array.isArray(resData) ? resData : (resData?.value ?? []);
-      
+      }).then(r => r.json()).catch(() => []);
+
+      const [phleboData, statusData] = await Promise.all([phleboPromise, statusPromise]);
+      const pList: any[] = Array.isArray(phleboData) ? phleboData : (phleboData?.value ?? []);
+      const sList: any[] = Array.isArray(statusData) ? statusData : (statusData?.value ?? []);
+
       const map = new Map<number, any>();
-      for (const r of rows) {
-        if (map.has(r.PID)) {
-          map.get(r.PID)!.test += `, ${r.MainTestName}`;
+
+      // 1. First populate from GetPhlebotomistStatus (has accurate PhlebotomistBy, EnteredBy, DiffTimeMin)
+      for (const r of pList) {
+        const pid = Number(r.PID || r.PPID || r.RegID);
+        if (!pid) continue;
+
+        if (map.has(pid)) {
+          const item = map.get(pid)!;
+          if (r.TestName && !item.test.includes(r.TestName)) {
+            item.test += `, ${r.TestName}`;
+          }
+          if (r.EnteredBy && (!item.enterBy || item.enterBy === 'Front Desk')) {
+            item.enterBy = r.EnteredBy;
+          }
+          if (r.PhlebotomistBy && (!item.phleboBy || item.phleboBy === 'Pending')) {
+            item.phleboBy = r.PhlebotomistBy;
+          }
+          if (r.SampleAcceptDate) {
+            item.phleboTime = new Date(r.SampleAcceptDate).toLocaleTimeString('en-IN');
+          }
+          if (r.DiffTimeMin != null) {
+            item.diff = String(r.DiffTimeMin);
+          }
         } else {
-          map.set(r.PID, {
-            id: r.PatRegID?.toString() || r.PID?.toString(),
+          map.set(pid, {
+            id: r.RegID?.toString() || pid.toString(),
+            name: r.PatientName ?? '—',
+            doc: (r.RefDoctor || 'Self').trim(),
+            test: r.TestName ?? '',
+            enterBy: r.EnteredBy || 'Front Desk',
+            regDate: r.PatRegDate ? new Date(r.PatRegDate).toLocaleString('en-IN') : '—',
+            phleboBy: r.PhlebotomistBy || 'Pending',
+            phleboTime: r.SampleAcceptDate ? new Date(r.SampleAcceptDate).toLocaleTimeString('en-IN') : '—',
+            diff: r.DiffTimeMin != null ? String(r.DiffTimeMin) : '0',
+            isEmergency: false,
+          });
+        }
+      }
+
+      // 2. Merge any additional patients from TestStatus
+      for (const r of sList) {
+        const pid = Number(r.PID || r.PatRegID);
+        if (!pid) continue;
+
+        if (map.has(pid)) {
+          const existing = map.get(pid)!;
+          if (r.MainTestName && !existing.test.includes(r.MainTestName)) {
+            existing.test += `, ${r.MainTestName}`;
+          }
+          if (r.Isemergency) existing.isEmergency = true;
+          if (r.Drname && existing.doc === 'Self') existing.doc = (r.Drname || 'Self').trim();
+        } else {
+          map.set(pid, {
+            id: r.PatRegID?.toString() || pid.toString(),
             name: r.PatientName ?? r.Patname ?? '—',
             doc: (r.Drname || r.RefDoctor || r.RefDr || r.DoctorName || r.OtherRefDoctor || 'Self').trim(),
             test: r.MainTestName ?? '',
-            enterBy: r.UserId ?? '—', // Use UserId or something similar if available
-            regDate: r.Patregdate ?? '—',
-            phleboBy: '—', // Backend might not provide this
-            phleboTime: '—', 
+            enterBy: r.UserId ? `User #${r.UserId}` : 'Front Desk',
+            regDate: r.Patregdate ? new Date(r.Patregdate).toLocaleString('en-IN') : '—',
+            phleboBy: 'Pending',
+            phleboTime: r.SampleAcceptDate ? new Date(r.SampleAcceptDate).toLocaleTimeString('en-IN') : '—',
             diff: '0',
             isEmergency: r.Isemergency ?? false,
           });
         }
       }
-      
+
       const list = Array.from(map.values());
       setData(list);
     } catch (e: any) {
@@ -63,7 +119,7 @@ export default function PhleboStatusScreen({ navigation }: any) {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); return () => {}; }, [load]));
+  useFocusEffect(useCallback(() => { load(); return () => { }; }, [load]));
 
   const renderItem = ({ item }: { item: any }) => (
     <View style={s.card}>
@@ -71,7 +127,7 @@ export default function PhleboStatusScreen({ navigation }: any) {
         <Text style={s.regNo}>Reg: {item.id}</Text>
         <Text style={s.diffBadge}>{item.diff} mins</Text>
       </View>
-      
+
       <View style={s.row}>
         <View style={s.avatar}><Text style={s.avatarText}>{item.name.charAt(0)}</Text></View>
         <View style={{ flex: 1 }}>
@@ -82,9 +138,9 @@ export default function PhleboStatusScreen({ navigation }: any) {
           <Text style={s.subInfo}>Dr. {item.doc}</Text>
         </View>
       </View>
-      
-      <Text style={s.testName}><Text style={{fontWeight: '700'}}>Test:</Text> {item.test}</Text>
-      
+
+      <Text style={s.testName}><Text style={{ fontWeight: '700' }}>Test:</Text> {item.test}</Text>
+
       <View style={s.gridRow}>
         <View style={s.gridItem}>
           <Text style={s.gridLabel}>Enter By</Text>
@@ -117,7 +173,7 @@ export default function PhleboStatusScreen({ navigation }: any) {
         </TouchableOpacity>
         <Text style={s.title}>Patient Status</Text>
       </View>
-      
+
       <View style={s.searchContainer}>
         <Feather name="search" size={18} color={T.sub} />
         <TextInput

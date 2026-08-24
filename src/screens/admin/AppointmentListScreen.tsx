@@ -321,32 +321,37 @@ export default function AppointmentListScreen({ navigation }: any) {
                   || (item.FirstName ? `${item.FirstName} ${item.LastName ?? ''}`.trim() : '')
                   || '—';
                 const tInfo = testStatusMap[item.Mobile];
-                const isUnregistered = tInfo?.state === 'noTests';
                 const apptStatus = String(item.Status || '').trim().toLowerCase();
                 const isTestCompleted = Boolean(
-                  tInfo?.isCompleted ||
                   apptStatus === 'completed' ||
                   apptStatus === 'done' ||
                   apptStatus === 'report ready' ||
-                  apptStatus === 'test completed'
+                  apptStatus === 'test completed' ||
+                  tInfo?.isCompleted
                 );
+                const isUnregistered = !isTestCompleted && apptStatus !== 'cancelled' && (tInfo?.state === 'noTests' || apptStatus === 'pending');
 
                 return (
                 <TouchableOpacity 
                   key={`appt-${item.AppointmentId || ''}-${idx}`} 
                   style={[
                     styles.apptRow,
+                    isTestCompleted && { backgroundColor: '#F0FDF4', borderColor: '#10B981', borderWidth: 1.5, borderRadius: 10, marginVertical: 4, paddingHorizontal: 10 },
                     isUnregistered && { backgroundColor: '#FFF7ED', borderColor: '#F97316', borderWidth: 1, borderRadius: 10, marginVertical: 4, paddingHorizontal: 10 }
                   ]}
                   onPress={() => {
+                    if (isTestCompleted) {
+                      return; // Do not open New Registration if completed
+                    }
                     if (isUnregistered) {
                       navigation.navigate('NewRegistration', { mobile: item.Mobile, name: patientName });
                     }
                   }}
                   activeOpacity={isUnregistered ? 0.7 : 1}
+                  disabled={isTestCompleted}
                 >
-                  <View style={styles.apptIcon}>
-                    <MaterialCommunityIcons name="calendar-account" size={18} color={COLORS.primary} />
+                  <View style={[styles.apptIcon, isTestCompleted && { backgroundColor: '#DCFCE7' }]}>
+                    <MaterialCommunityIcons name={isTestCompleted ? "check-circle-outline" : "calendar-account"} size={18} color={isTestCompleted ? "#10B981" : COLORS.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.apptName}>
@@ -359,27 +364,30 @@ export default function AppointmentListScreen({ navigation }: any) {
                       📱 {item.Mobile}  •  {fmtDate(item.AppointmentDate)}
                     </Text>
                     <Text style={styles.apptTime}>
-                      🕐 {formatSlot(item.Slot)}  •  {item.Status}
+                      🕐 {formatSlot(item.Slot)}  •  {isTestCompleted ? 'Completed' : item.Status}
                     </Text>
                   </View>
                   {/* Status badge */}
                   <View style={{ alignItems: 'flex-end', gap: 6 }}>
                     <View style={[styles.statusPill, {
-                      backgroundColor: item.Status === 'Cancelled' ? '#FEF2F2'
+                      backgroundColor: isTestCompleted ? '#ECFDF5'
+                        : item.Status === 'Cancelled' ? '#FEF2F2'
                         : item.Status === 'Pending' ? '#FFFBEB'
                         : item.IsActive ? '#F0FDFA' : '#F1F5F9',
                     }]}>
                       <View style={[styles.statusDot, {
-                        backgroundColor: item.Status === 'Cancelled' ? '#EF4444'
+                        backgroundColor: isTestCompleted ? '#10B981'
+                          : item.Status === 'Cancelled' ? '#EF4444'
                           : item.Status === 'Pending' ? '#F59E0B'
                           : item.IsActive ? '#10B981' : '#94A3B8',
                       }]} />
                       <Text style={[styles.statusText, {
-                        color: item.Status === 'Cancelled' ? '#EF4444'
+                        color: isTestCompleted ? '#10B981'
+                          : item.Status === 'Cancelled' ? '#EF4444'
                           : item.Status === 'Pending' ? '#F59E0B'
                           : item.IsActive ? '#10B981' : '#94A3B8',
                       }]}>
-                        {item.Status ?? (item.IsActive ? 'Active' : 'Done')}
+                        {isTestCompleted ? 'Completed' : (item.Status ?? (item.IsActive ? 'Active' : 'Done'))}
                       </Text>
                     </View>
                     {!isTestCompleted && (
