@@ -125,7 +125,7 @@ export default function CollectionCenterScreen({ navigation }: any) {
             </View>
           ) : (
             filtered.map((item, idx) => (
-              <View key={String(item.CenterCode ?? idx)} style={st.card}>
+              <View key={`center-${item.CenterCode || ''}-${idx}`} style={st.card}>
                 <View style={st.cardIcon}>
                   <MaterialCommunityIcons name="map-marker" size={22} color={COLORS.primary} />
                 </View>

@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+const CustomWebView = WebView as any;
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS, SPACING, BORDER_RADIUS } from '../../utils/constants';
 import { useAuth } from '../../context/AuthContext';
@@ -482,7 +483,7 @@ export default function PaymentGatewayScreen({ navigation, route }: any) {
           <View style={{ width: 24 }} />
         </View>
         
-        <WebView
+        <CustomWebView
           ref={webViewRef}
           source={{ html: checkoutHTML }}
           onMessage={handleWebViewMessage}

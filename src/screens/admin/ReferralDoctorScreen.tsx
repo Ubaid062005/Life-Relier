@@ -225,7 +225,7 @@ export default function ReferralDoctorScreen({ navigation }: any) {
               </View>
             ) : (
               filtered.map((item, idx) => (
-                <View key={String(item.dr_codeid ?? idx)} style={st.row}>
+                <View key={`doc-${item.dr_codeid || item.DoctorCode || ''}-${idx}`} style={st.row}>
                   <View style={st.rowIcon}>
                     <MaterialCommunityIcons name="doctor" size={18} color={COLORS.primary} />
                   </View>

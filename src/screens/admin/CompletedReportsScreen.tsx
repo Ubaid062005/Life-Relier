@@ -1,13 +1,18 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, RefreshControl,
+  TextInput, ActivityIndicator, RefreshControl, Modal, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import BlinkingEmergencyBulb from '../../components/BlinkingEmergencyBulb';
 import { useFocusEffect } from '@react-navigation/native';
-import { API_BASE_URL , COLORS} from '../../utils/constants';
+import { API_BASE_URL, COLORS } from '../../utils/constants';
+import {
+  generateAndShareReportPdf,
+  generateAndViewReportPdf,
+  generateAndPrintReportPdf,
+} from '../../services/reportPdfService';
 
 const T = {
   primary:  '#0D9488',
@@ -59,6 +64,12 @@ export default function CompletedReportsScreen({ navigation }: any) {
   const [loading,    setLoading]    = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // PDF modal and action states
+  const [selectedReport, setSelectedReport] = useState<PatientRow | null>(null);
+  const [showLayoutModal, setShowLayoutModal] = useState(false);
+  const [modalAction, setModalAction] = useState<'send' | 'print'>('send');
+  const [generatingPid, setGeneratingPid] = useState<number | null>(null);
+
   const fetchReports = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
     try {
@@ -93,6 +104,73 @@ export default function CompletedReportsScreen({ navigation }: any) {
 
   // Deduplicate by PatRegID for summary counts
   const uniquePIDs = new Set(records.map(r => r.PID));
+
+  // Handler for View (opens system PDF app chooser / viewer popup directly - Image 2)
+  const handleViewReport = async (item: PatientRow) => {
+    setGeneratingPid(item.PID);
+    try {
+      await generateAndViewReportPdf({
+        PatRegID: item.PatRegID,
+        PID: item.PID,
+        BranchId: 1,
+        CompanyId: 1,
+        TimeZoneId: 1,
+        PrintMode: 'WITHOUT_LETTERHEAD',
+      });
+    } catch (e: any) {
+      Alert.alert('View Error', e.message || 'Failed to open PDF report');
+    } finally {
+      setGeneratingPid(null);
+    }
+  };
+
+  // Handler for opening Send layout modal
+  const handleOpenSendModal = (item: PatientRow) => {
+    setSelectedReport(item);
+    setModalAction('send');
+    setShowLayoutModal(true);
+  };
+
+  // Handler for opening Print layout modal
+  const handleOpenPrintModal = (item: PatientRow) => {
+    setSelectedReport(item);
+    setModalAction('print');
+    setShowLayoutModal(true);
+  };
+
+  // Execute selected layout action (Send via share sheet - Image 1 or Print)
+  const handleExecuteAction = async (printMode: 'WITHOUT_LETTERHEAD' | 'WITH_LETTERHEAD') => {
+    if (!selectedReport) return;
+    const item = selectedReport;
+    setShowLayoutModal(false);
+    setGeneratingPid(item.PID);
+
+    try {
+      if (modalAction === 'send') {
+        await generateAndShareReportPdf({
+          PatRegID: item.PatRegID,
+          PID: item.PID,
+          BranchId: 1,
+          CompanyId: 1,
+          TimeZoneId: 1,
+          PrintMode: printMode,
+        });
+      } else {
+        await generateAndPrintReportPdf({
+          PatRegID: item.PatRegID,
+          PID: item.PID,
+          BranchId: 1,
+          CompanyId: 1,
+          TimeZoneId: 1,
+          PrintMode: printMode,
+        });
+      }
+    } catch (e: any) {
+      Alert.alert('Action Error', e.message || 'Failed to process report');
+    } finally {
+      setGeneratingPid(null);
+    }
+  };
 
   return (
     <View style={[styles.root, { paddingTop: Math.max(insets.top, 0) }]}>
@@ -174,44 +252,108 @@ export default function CompletedReportsScreen({ navigation }: any) {
               <Text style={styles.emptyTitle}>No records found</Text>
             </View>
           ) : (
-            filtered.map((r, idx) => (
-              <View key={`${r.PatRegID}-${r.BarcodeID}-${idx}`} style={styles.reportCard}>
-                <View style={styles.cardTop}>
-                  <View style={styles.avatarBox}>
-                    <Text style={styles.avatarText}>{r.PatientName.charAt(0).toUpperCase()}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.patientName}>{r.PatientName}</Text>
-                      {r.Isemergency && <BlinkingEmergencyBulb size={18} />}
+            filtered.map((r, idx) => {
+              const isBusy = generatingPid === r.PID;
+              return (
+                <View key={`${r.PatRegID}-${r.BarcodeID}-${idx}`} style={styles.reportCard}>
+                  <View style={styles.cardTop}>
+                    <View style={styles.avatarBox}>
+                      <Text style={styles.avatarText}>{r.PatientName.charAt(0).toUpperCase()}</Text>
                     </View>
-                    <Text style={styles.patientId}>
-                      PT{String(r.PatRegID).padStart(6,'0')}  •  {formatDate(r.Patregdate)}
-                    </Text>
-                    <View style={styles.cardMeta}>
-                      <Feather name="activity" size={11} color={COLORS.textMuted} />
-                      <Text style={styles.cardMetaText}> {r.MainTestName}</Text>
-                      <Feather name="hash" size={11} color={COLORS.textMuted} style={{ marginLeft: 8 }} />
-                      <Text style={styles.cardMetaText}> {r.BarcodeID}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.patientName}>{r.PatientName}</Text>
+                        {r.Isemergency && <BlinkingEmergencyBulb size={18} />}
+                      </View>
+                      <Text style={styles.patientId}>
+                        PT{String(r.PatRegID).padStart(6,'0')}  •  {formatDate(r.Patregdate)}
+                      </Text>
+                      <View style={styles.cardMeta}>
+                        <Feather name="activity" size={11} color={COLORS.textMuted} />
+                        <Text style={styles.cardMetaText}> {r.MainTestName}</Text>
+                        <Feather name="hash" size={11} color={COLORS.textMuted} style={{ marginLeft: 8 }} />
+                        <Text style={styles.cardMetaText}> {r.BarcodeID}</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: '#F0FDF4' }]}>
+                      <Text style={[styles.statusText, { color: T.success }]}>₹{(r.PaidAmount ?? 0).toFixed(0)}</Text>
                     </View>
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: '#F0FDF4' }]}>
-                    <Text style={[styles.statusText, { color: T.success }]}>₹{(r.PaidAmount ?? 0).toFixed(0)}</Text>
-                  </View>
-                </View>
 
-                <View style={styles.cardActions}>
-                  <ActionBtn icon="eye"      label="View"  />
-                  <ActionBtn icon="download" label="PDF"   />
-                  <ActionBtn icon="printer"  label="Print" />
-                  <ActionBtn icon="mail"     label="Send"  />
+                  {/* 3 Action Buttons: View, Print, Send */}
+                  <View style={styles.cardActions}>
+                    <ActionBtn
+                      icon="eye"
+                      label="View"
+                      loading={isBusy}
+                      onPress={() => handleViewReport(r)}
+                    />
+                    <ActionBtn
+                      icon="printer"
+                      label="Print"
+                      disabled={isBusy}
+                      onPress={() => handleOpenPrintModal(r)}
+                    />
+                    <ActionBtn
+                      icon="send"
+                      label="Send"
+                      disabled={isBusy}
+                      onPress={() => handleOpenSendModal(r)}
+                      isLast
+                    />
+                  </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           )}
           <View style={{ height: 110 }} />
         </ScrollView>
       )}
+
+      {/* Print / Send Layout Selection Modal */}
+      <Modal visible={showLayoutModal} transparent animationType="fade" onRequestClose={() => setShowLayoutModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <MaterialCommunityIcons name={modalAction === 'send' ? 'share-variant' : 'printer'} size={26} color={COLORS.primary} />
+              <Text style={styles.modalTitle}>
+                {modalAction === 'send' ? 'Send Report' : 'Print Report'}
+              </Text>
+            </View>
+            <Text style={styles.modalSub}>
+              Select layout for {selectedReport?.PatientName} (PID: {selectedReport?.PID})
+            </Text>
+
+            <TouchableOpacity
+              style={styles.modalOption}
+              onPress={() => handleExecuteAction('WITHOUT_LETTERHEAD')}
+            >
+              <MaterialCommunityIcons name="file-document-outline" size={22} color={COLORS.primary} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.modalOptionTitle}>Without Letterhead</Text>
+                <Text style={styles.modalOptionDesc}>Standard clean report layout</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modalOption}
+              onPress={() => handleExecuteAction('WITH_LETTERHEAD')}
+            >
+              <MaterialCommunityIcons name="printer" size={22} color="#8B5CF6" />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.modalOptionTitle}>With Letterhead</Text>
+                <Text style={styles.modalOptionDesc}>Includes clinic header branding & logo</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowLayoutModal(false)}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -225,11 +367,21 @@ function SummaryMini({ value, label, color, bg }: any) {
   );
 }
 
-function ActionBtn({ icon, label }: any) {
+function ActionBtn({ icon, label, onPress, isLast, loading, disabled }: any) {
   return (
-    <TouchableOpacity style={styles.actionBtn}>
-      <Feather name={icon} size={14} color={COLORS.primary} />
-      <Text style={styles.actionBtnText}>{label}</Text>
+    <TouchableOpacity
+      style={[styles.actionBtn, isLast && { borderRightWidth: 0 }, disabled && { opacity: 0.6 }]}
+      onPress={onPress}
+      disabled={disabled || loading}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={COLORS.primary} />
+      ) : (
+        <>
+          <Feather name={icon} size={14} color={COLORS.primary} />
+          <Text style={styles.actionBtnText}>{label}</Text>
+        </>
+      )}
     </TouchableOpacity>
   );
 }
@@ -270,4 +422,40 @@ const styles = StyleSheet.create({
   cardActions: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: COLORS.cardBorder },
   actionBtn:   { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 11, gap: 5, borderRightWidth: 1, borderRightColor: COLORS.cardBorder },
   actionBtnText:{ fontSize: 12, fontWeight: '600', color: COLORS.primary },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 20,
+    maxWidth: 400,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: COLORS.textPrimary },
+  modalSub: { fontSize: 12, color: COLORS.textSecondary, marginBottom: 16 },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    marginBottom: 10,
+  },
+  modalOptionTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  modalOptionDesc: { fontSize: 11, color: COLORS.textSecondary, marginTop: 1 },
+  modalCancelBtn: {
+    marginTop: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelText: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
 });

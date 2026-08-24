@@ -12,17 +12,19 @@ import LaboratoryScreen       from '../screens/admin/LaboratoryScreen';
 import CompletedReportsScreen from '../screens/admin/CompletedReportsScreen';
 import MasterScreen           from '../screens/admin/MasterScreen';
 
-// â”€â”€ Front Desk children â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 import NewRegistrationScreen  from '../screens/admin/NewRegistrationScreen';
 import PatientsScreen         from '../screens/admin/PatientsScreen';       // Patient Status
 import PlaceholderScreen      from '../screens/admin/PlaceholderScreen';
 
-// â”€â”€ Laboratory children â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 import SamplesScreen          from '../screens/admin/SamplesScreen';        // Accession
 import ReportsScreen          from '../screens/admin/ReportsScreen';        // Result Entry
-import PendingReportsScreen   from '../screens/admin/PendingReportsScreen'; // Pending Reports / Report Approval
+import PendingReportsScreen   from '../screens/admin/PendingReportsScreen'; // Pending Reports
+import ReportApprovalScreen  from '../screens/admin/ReportApprovalScreen';  // Report Approval
+import AddResultWithTestParamScreen from '../screens/doctor/AddResultWithTestParamScreen';
 
-// â”€â”€ Master children â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 import DoctorManagementScreen from '../screens/admin/DoctorManagementScreen';
 import DoctorAppointmentScreen from '../screens/admin/DoctorAppointmentScreen';
 import AddDoctorScheduleScreen from '../screens/admin/AddDoctorScheduleScreen';
@@ -75,15 +77,17 @@ function DashboardStack() {
       <Stack.Screen name="EditPatient"      component={EditPatientScreen} />
       <Stack.Screen name="SampleCollection" component={SamplesScreen} />
       <Stack.Screen name="ResultEntry"      component={ReportsScreen} />
+      <Stack.Screen name="AddResultWithTestParam" component={AddResultWithTestParamScreen} />
       <Stack.Screen name="BillPayment"      component={BillingDeskScreen} />
       <Stack.Screen name="PendingReports"   component={PendingReportsScreen} />
+      <Stack.Screen name="ReportApproval"   component={ReportApprovalScreen} />
     </Stack.Navigator>
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 // 2. FRONT DESK STACK
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 function FrontDeskStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -100,9 +104,9 @@ function FrontDeskStack() {
   );
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 // 3. LABORATORY STACK
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────────────────────────────────────────────
 function LaboratoryStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -110,8 +114,9 @@ function LaboratoryStack() {
       <Stack.Screen name="SampleCollection" component={SamplesScreen} />
       <Stack.Screen name="Accession"       component={SamplesScreen} />
       <Stack.Screen name="ResultEntry"     component={ReportsScreen} />
+      <Stack.Screen name="AddResultWithTestParam" component={AddResultWithTestParamScreen} />
       <Stack.Screen name="PendingReports"  component={PendingReportsScreen} />
-      <Stack.Screen name="ReportApproval"  component={PendingReportsScreen} />
+      <Stack.Screen name="ReportApproval"  component={ReportApprovalScreen} />
     </Stack.Navigator>
   );
 }

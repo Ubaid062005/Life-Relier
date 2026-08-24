@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform, Alert,
-  ActivityIndicator, Image,
+  ActivityIndicator, Image, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -12,7 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import {
   registerPatient, updatePatientFiles,
-  getInitials, searchPatient, searchPatientByMobile, searchTests,
+  getInitials, searchPatient, searchPatientByMobile, searchTests, resolveSampleType,
   InitialItem, SearchPatientItem, TestResult,
 } from '../../services/registrationService';
 import { getTestNames, getAllTestCharges, TestNameItem, getCenters, CenterItem } from '../../services/testChargesService';
@@ -59,39 +59,109 @@ function Field({ children, style }: { children: React.ReactNode; style?: any }) 
   return <View style={[s.fieldWrap, style]}>{children}</View>;
 }
 
-function InlineSelect({ value, options, onSelect, placeholder, minWidth }: any) {
+function InlineSelect({ value, options, onSelect, placeholder }: any) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const filteredOptions = (options || []).filter((o: string) =>
+    typeof o === 'string' && o.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleOpen = () => {
+    setSearch('');
+    setOpen(true);
+  };
+
   return (
-    <View style={{ position: 'relative', zIndex: open ? 9999 : 1 }}>
-      <TouchableOpacity style={s.inlineSelect} onPress={() => setOpen(!open)} activeOpacity={0.8}>
+    <>
+      <TouchableOpacity style={s.inlineSelect} onPress={handleOpen} activeOpacity={0.8}>
         <Text style={[s.inlineSelectText, !value && { color: COLORS.textMuted }]} numberOfLines={1}>
           {value || placeholder}
         </Text>
-        <Feather name={open ? "chevron-up" : "chevron-down"} size={14} color={COLORS.textSecondary} />
+        <Feather name="chevron-down" size={14} color={COLORS.textSecondary} />
       </TouchableOpacity>
-      {open && (
-        <View style={[s.ddMenu, minWidth ? { minWidth } : null]}>
-          <ScrollView
-            style={{ maxHeight: 200 }}
-            nestedScrollEnabled
-            showsVerticalScrollIndicator={true}
-            keyboardShouldPersistTaps="handled"
-          >
-            {options.map((o: string) => (
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <TouchableOpacity
+          style={s.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setOpen(false)}
+        >
+          <View style={s.modalCard} onStartShouldSetResponder={() => true}>
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>{placeholder || 'Select Option'}</Text>
               <TouchableOpacity
-                key={o}
-                style={[s.ddItem, value === o && { backgroundColor: '#F0FDFA' }]}
-                onPress={() => { onSelect(o); setOpen(false); }}
+                onPress={() => setOpen(false)}
+                style={s.modalCloseBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Text style={[s.ddItemText, value === o && { color: COLORS.primary, fontWeight: '700' }]}>
-                  {o}
-                </Text>
+                <Feather name="x" size={20} color={COLORS.textSecondary} />
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
+            </View>
+
+            {options && options.length > 5 && (
+              <View style={s.modalSearchWrap}>
+                <Feather name="search" size={16} color={COLORS.textMuted} style={{ marginRight: 8 }} />
+                <TextInput
+                  style={s.modalSearchInput}
+                  placeholder={`Search ${placeholder || 'options'}...`}
+                  placeholderTextColor={COLORS.textMuted}
+                  value={search}
+                  onChangeText={setSearch}
+                  autoCapitalize="none"
+                />
+                {search.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearch('')}>
+                    <Feather name="x" size={14} color={COLORS.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            <ScrollView
+              style={s.modalList}
+              showsVerticalScrollIndicator={true}
+              persistentScrollbar={true}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled={true}
+            >
+              {filteredOptions.length === 0 ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 13, color: COLORS.textMuted }}>No matching options</Text>
+                </View>
+              ) : (
+                filteredOptions.map((o: string) => {
+                  const isSelected = value === o;
+                  return (
+                    <TouchableOpacity
+                      key={o}
+                      style={[s.modalItem, isSelected && s.modalItemActive]}
+                      onPress={() => {
+                        onSelect(o);
+                        setOpen(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.modalItemText, isSelected && s.modalItemTextActive]}>
+                        {o}
+                      </Text>
+                      {isSelected && (
+                        <Feather name="check" size={18} color={COLORS.primary} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </>
   );
 }
 
@@ -258,10 +328,6 @@ export default function NewRegistrationScreen({ navigation, route }: any) {
     getCenters(1).then(d => {
       if (d && d.length > 0) {
         setCenters(d);
-        if (!centerCode) {
-          const defaultCenter = d.find(c => c.CenterName.toLowerCase().includes('adc')) || d[0];
-          if (defaultCenter) setCenterCode(String(defaultCenter.CenterCode));
-        }
       }
     }).catch(() => {});
     getInitials().then(d => { if (d.length) setInitialsList(d); }).catch(() => {});
@@ -708,19 +774,31 @@ export default function NewRegistrationScreen({ navigation, route }: any) {
         // TestList is the format the backend uses to create billing/test records
         // that make the patient appear in GetPatientTestStatus.
         TestNames:  addedTests,
-        TestList:   addedTests.map(name => ({
-          MainTestId:   addedTestIds[name] ?? allTests.find(t => t.TestName === name || t.MainTestName === name)?.MainTestId ?? 0,
-          TestName:     name,
-          PatTestName:  name,
-          MainTestName: name,
-          TestType:     'T',
-          PackageId:    0,
-          PackageCode:  '',
-          MTCode:       allTests.find(t => t.TestName === name || t.MainTestName === name)?.TestCode ?? '',
-          Amount:       testPrices[name] ?? 0,
-          TestRate:     testPrices[name] ?? 0,
-          ClientRate:   testPrices[name] ?? 0,
-        })),
+        TestList:   addedTests.map(name => {
+          const match = allTests.find(t => t.TestName === name || t.MainTestName === name);
+          const mainTestId = addedTestIds[name] ?? match?.MainTestId ?? 0;
+          const mtCode = match?.MTCode ?? match?.TestCode ?? '';
+          const subDept = match?.SubDeptId;
+          const sampleMeta = resolveSampleType(name, subDept);
+
+          return {
+            MainTestId:      mainTestId,
+            TestName:        name,
+            PatTestName:     name,
+            MainTestName:    name,
+            TestType:        'T',
+            PackageId:       0,
+            PackageCode:     '',
+            MTCode:          mtCode,
+            SubDeptId:       sampleMeta.subDeptId,
+            SubDepartmentId: sampleMeta.subDeptId,
+            SampleType:      sampleMeta.sampleType,
+            SampleTypeId:    sampleMeta.sampleTypeId,
+            Amount:          testPrices[name] ?? 0,
+            TestRate:        testPrices[name] ?? 0,
+            ClientRate:      testPrices[name] ?? 0,
+          };
+        }),
         // ── Payment / billing ──────────────────────────────────────────────
         PaymentType:       payType,
         TotalAmount:       grossTotal,
@@ -1264,6 +1342,85 @@ const s = StyleSheet.create({
   datePickerText: { flex: 1, fontSize: 13, color: COLORS.textPrimary },
   inlineSelect: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: COLORS.cardBorder, borderRadius: 6, paddingHorizontal: 8, height: 40, backgroundColor: COLORS.background },
   inlineSelectText: { flex: 1, fontSize: 13, color: COLORS.textPrimary },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 360,
+    maxHeight: 440,
+    backgroundColor: COLORS.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 24,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
+    backgroundColor: COLORS.surfaceVariant,
+  },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
+    backgroundColor: COLORS.background,
+  },
+  modalSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    paddingVertical: 4,
+  },
+  modalList: {
+    maxHeight: 340,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
+  },
+  modalItemActive: {
+    backgroundColor: '#F0FDFA',
+  },
+  modalItemText: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  modalItemTextActive: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
   ddMenu:      { position: 'absolute', top: 42, left: 0, right: 0, minWidth: '100%', borderWidth: 1, borderColor: COLORS.cardBorder, borderRadius: 6, backgroundColor: COLORS.background, zIndex: 99999, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
   ddItem:      { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F8FAFC' },
   ddItemText:  { fontSize: 13, color: COLORS.textPrimary },

@@ -229,7 +229,7 @@ export default function DoctorAppointmentScreen({ navigation }: any) {
         ) : (
           <FlatList
             data={filtered}
-            keyExtractor={(item, idx) => String(item.ScheduleId ?? idx)}
+            keyExtractor={(item, idx) => `doc-appt-${item.ScheduleId || ''}-${idx}`}
             renderItem={renderItem}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}

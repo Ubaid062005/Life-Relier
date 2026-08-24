@@ -30,10 +30,18 @@ export async function deleteTestCharge(testChargeId: number): Promise<string> {
  * Body: { BranchId: number }
  */
 export async function getPackages(branchId: number = 1): Promise<Package[]> {
-  const response = await api.post<Package[]>('/api/TestCharges/GetPackages', {
-    BranchId: branchId,
-  });
-  return response.data;
+  try {
+    const response = await api.post<any>('/api/TestCharges/GetPackages', {
+      BranchId: branchId,
+    });
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data?.value)) return data.value;
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -177,6 +185,8 @@ export interface TestNameItem {
   MainTestName: string;
   TestName:     string;   // alias for MainTestName
   TestCode:     string;
+  MTCode?:      string;
+  SubDeptId?:   number;
   Price?:       number;   // MRP/Rate for the test
   Amount?:      number;   // Alternative price field
 }
@@ -311,6 +321,8 @@ export async function getTestNames(branchId: number = 1): Promise<TestNameItem[]
         MainTestName: c.TestName.trim(),
         TestName:     c.TestName.trim(),
         TestCode:     c.MTCODE ?? c.MTCode ?? '',
+        MTCode:       c.MTCODE ?? c.MTCode ?? '',
+        SubDeptId:    c.SubDeptId ?? 0,
         Price:        c.ClientRate ?? c.Amount ?? 0,
         Amount:       c.Amount ?? 0,
       });

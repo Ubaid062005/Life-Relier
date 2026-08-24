@@ -249,7 +249,7 @@ export default function AppointmentRecordsScreen({ navigation }: any) {
                   || (item.FirstName ? `${item.FirstName} ${item.LastName ?? ''}`.trim() : '')
                   || '—';
                 return (
-                  <View key={String(item.AppointmentId ?? idx)} style={styles.recordRow}>
+                  <View key={`apptr-${item.AppointmentId || ''}-${idx}`} style={styles.recordRow}>
                     <View style={styles.recordIconBox}>
                       <MaterialCommunityIcons name="calendar-account" size={18} color={COLORS.primary} />
                     </View>

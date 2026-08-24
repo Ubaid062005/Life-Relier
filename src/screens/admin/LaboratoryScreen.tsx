@@ -102,7 +102,7 @@ export default function LaboratoryScreen({ navigation }: any) {
       const samplePending   = uniqueToday.filter(r => r.IspheboAccept === 0).length;
       const sampleCollected = uniqueToday.filter(r => r.IspheboAccept === 1).length;
       const processing      = uniqueToday.filter(r => r.Status === 'Processing').length;
-      const reportReady     = uniqueToday.filter(r => r.Status === 'Report Ready').length;
+      const reportReady     = uniqueToday.filter(r => r.Status === 'Report Ready' || r.Status === 'Authorized').length;
 
       // ── Pending reports (all time) — same as PendingReportsScreen ────────
       const prRes = await fetch(`${API_BASE_URL}/api/TestStatus/GetPatientTestStatus`, {

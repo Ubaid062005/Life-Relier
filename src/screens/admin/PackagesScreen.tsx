@@ -35,10 +35,13 @@ export default function PackagesScreen({ navigation }: any) {
     setError(null);
     try {
       const data = await getPackages(1);
-      setPackages(data);
-      setFiltered(data);
+      const list = Array.isArray(data) ? data : [];
+      setPackages(list);
+      setFiltered(list);
     } catch (err: any) {
       setError(err?.message || 'Failed to load packages. Please try again.');
+      setPackages([]);
+      setFiltered([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -51,15 +54,16 @@ export default function PackagesScreen({ navigation }: any) {
 
   // Live search filter
   useEffect(() => {
+    const list = Array.isArray(packages) ? packages : [];
     const q = search.trim().toLowerCase();
     if (!q) {
-      setFiltered(packages);
+      setFiltered(list);
     } else {
       setFiltered(
-        packages.filter(
+        list.filter(
           p =>
-            p.PackageName.toLowerCase().includes(q) ||
-            String(p.PackageId).includes(q)
+            p?.PackageName?.toLowerCase().includes(q) ||
+            String(p?.PackageId || '').includes(q)
         )
       );
     }

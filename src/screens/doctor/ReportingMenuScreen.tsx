@@ -8,9 +8,9 @@ const PRIMARY = '#0D9488';
 const menuItems = [
   {
     id: 'ResultEntry',
-    title: 'Result Entry',
-    icon: 'test-tube',
-    desc: 'View and manage all patient test results.',
+    title: 'View Result / Report',
+    icon: 'file-document-check-outline',
+    desc: 'Search, view patient results, and download PDF reports.',
     screen: 'TestResultEntry'
   },
   {

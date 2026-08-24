@@ -170,7 +170,25 @@ export default function ReportsScreen({ navigation }: any) {
                       ₹{(item.PaidAmount ?? 0).toFixed(0)}
                     </Text>
                   </View>
-                  <TouchableOpacity style={styles.enterBtn}>
+                  <TouchableOpacity
+                    style={styles.enterBtn}
+                    onPress={() => {
+                      navigation.navigate('AddResultWithTestParam', {
+                        patient: {
+                          pid: item.PID,
+                          PID: item.PID,
+                          regNo: item.PatRegID,
+                          PatRegID: item.PatRegID,
+                          fullName: item.PatientName,
+                          PatientName: item.PatientName,
+                          refDr: item.Drname || 'Self',
+                          gender: (item as any).Gender || (item as any).gender || '—',
+                          age: (item as any).Age || (item as any).age || '—',
+                          barcode: item.BarcodeID,
+                        },
+                      });
+                    }}
+                  >
                     <Text style={styles.enterBtnText}>Enter Results</Text>
                   </TouchableOpacity>
                 </View>

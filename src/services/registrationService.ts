@@ -75,17 +75,21 @@ export interface RegisterPatientPayload {
   // ── Tests ─────────────────────────────────────────────────────────────────
   TestNames:         string[];   // backward compat — array of test name strings
   TestList: Array<{
-    MainTestId:   number;
-    TestName:     string;
-    PatTestName:  string;
-    MainTestName: string;
-    TestType:     string;
-    PackageId:    number;
-    PackageCode:  string;
-    MTCode:       string;
-    Amount:       number;
-    TestRate:     number;
-    ClientRate:   number;
+    MainTestId:      number;
+    TestName:        string;
+    PatTestName:     string;
+    MainTestName:    string;
+    TestType:        string;
+    PackageId:       number;
+    PackageCode:     string;
+    MTCode:          string;
+    SubDeptId?:      number;
+    SubDepartmentId?:number;
+    SampleType?:     string;
+    SampleTypeId?:   number;
+    Amount:          number;
+    TestRate:        number;
+    ClientRate:      number;
   }>;
   // ── Payment / billing ─────────────────────────────────────────────────────
   PaymentType:       string;
@@ -103,6 +107,68 @@ export interface RegisterPatientPayload {
   BalAmt:            number;
   // ── Status — required so backend creates the billing record ───────────────
   Status:            string;
+}
+
+export interface TestSampleMeta {
+  sampleType: string;
+  sampleTypeId: number;
+  subDeptId: number;
+}
+
+/**
+ * Resolves standard clinical SampleType and SubDeptId from test name / catalog.
+ */
+export function resolveSampleType(testName: string, subDeptId?: number): TestSampleMeta {
+  const upper = (testName || '').toUpperCase();
+
+  if (
+    upper.includes('CBC') ||
+    upper.includes('WHOLE BLOOD') ||
+    upper.includes('EDTA') ||
+    upper.includes('HEMOGLOBIN') ||
+    upper.includes('WBC') ||
+    upper.includes('RBC') ||
+    upper.includes('BLOOD COUNT') ||
+    upper.includes('PLATELET') ||
+    upper.includes('ESR') ||
+    upper.includes('BLOOD GROUP') ||
+    subDeptId === 20 ||
+    subDeptId === 1
+  ) {
+    return { sampleType: 'WHOLE BLOOD EDTA', sampleTypeId: 1, subDeptId: subDeptId || 20 };
+  }
+
+  if (
+    upper.includes('URINE') ||
+    upper.includes('URINARY') ||
+    subDeptId === 5
+  ) {
+    return { sampleType: 'URINE', sampleTypeId: 3, subDeptId: subDeptId || 5 };
+  }
+
+  if (
+    upper.includes('CITRATE') ||
+    upper.includes('PT') ||
+    upper.includes('INR') ||
+    upper.includes('APTT') ||
+    upper.includes('COAGULATION') ||
+    upper.includes('D-DIMER')
+  ) {
+    return { sampleType: 'SODIUM CITRATE', sampleTypeId: 4, subDeptId: subDeptId || 20 };
+  }
+
+  if (
+    upper.includes('FLUORIDE') ||
+    upper.includes('FASTING BLOOD SUGAR') ||
+    upper.includes('FBS') ||
+    upper.includes('PPBS') ||
+    upper.includes('GLUCOSE')
+  ) {
+    return { sampleType: 'FLUORIDE', sampleTypeId: 5, subDeptId: subDeptId || 2 };
+  }
+
+  // Default for Biochemistry, Serology, Immunology, Lipids, LFT, KFT, Vitamins, Hormones
+  return { sampleType: 'SERUM', sampleTypeId: 2, subDeptId: subDeptId || 2 };
 }
 
 export interface RegisterPatientResponse {
@@ -162,12 +228,55 @@ export interface TestResult {
 
 /**
  * POST /api/NewRegistration/RegisterPatient
- * Body: { Patname, Age, Pataddress }
+ * Registers patient, ensures sample types are attached, and auto-initializes barcode IDs per sample group.
  */
 export async function registerPatient(
   payload: RegisterPatientPayload,
 ): Promise<RegisterPatientResponse> {
-  return postJson('/api/NewRegistration/RegisterPatient', payload);
+  const res = await postJson<RegisterPatientResponse>('/api/NewRegistration/RegisterPatient', payload);
+
+  const pid = res?.PID ?? res?.PPID ?? res?.PatRegID;
+  if (pid) {
+    try {
+      // Auto-assign barcodes for newly generated sample groups so website and phlebo list show barcodes & sample types
+      const today = new Date().toISOString().split('T')[0];
+      const phleboRes = await fetch(`${API_BASE_URL}/api/Phlebotomist/GetPhlebotomistList`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          BranchId: payload.BranchId || 1,
+          FromDate: '2024-01-01',
+          ToDate: today,
+        }),
+      });
+
+      const phleboData = await phleboRes.json();
+      const patientRows = Array.isArray(phleboData) ? phleboData.filter((r: any) => r.PID === pid) : [];
+
+      let sampleIdx = 1;
+      for (const row of patientRows) {
+        if (row.Patmstid) {
+          const barcodeVal = `${pid}${sampleIdx}`;
+          sampleIdx++;
+          await fetch(`${API_BASE_URL}/api/Phlebotomist/UpdateBarcodeID`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              BranchId: payload.BranchId || 1,
+              Patmstid: row.Patmstid,
+              Barcode: barcodeVal,
+              BarcodeID: barcodeVal,
+              BarcodeNo: barcodeVal,
+            }),
+          });
+        }
+      }
+    } catch (bcErr) {
+      console.warn('[registerPatient] Auto-assign barcode notice:', bcErr);
+    }
+  }
+
+  return res;
 }
 
 /**

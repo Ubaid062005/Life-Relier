@@ -28,8 +28,8 @@ function DD({ label, required, value, options, onSelect, placeholder = 'Select..
       </TouchableOpacity>
       {open && (
         <View style={st.ddMenu}>
-          {options.map((o: any) => (
-            <TouchableOpacity key={o.id} style={st.ddItem} onPress={() => { onSelect(o); setOpen(false); }}>
+          {options.map((o: any, idx: number) => (
+            <TouchableOpacity key={`opt-${o.id ?? ''}-${o.label ?? ''}-${idx}`} style={st.ddItem} onPress={() => { onSelect(o); setOpen(false); }}>
               <Text style={st.ddItemText}>{o.label}</Text>
             </TouchableOpacity>
           ))}
@@ -61,10 +61,12 @@ export default function TestChargesScreen({ navigation }: any) {
   const [testNames, setTestNames]   = useState<TestNameItem[]>([]);
 
   // ── Filter state (mirrors website) ──
-  const [filterRateTypeId, setFilterRateTypeId]     = useState<number | null>(null);
-  const [filterRateTypeName, setFilterRateTypeName] = useState('');
+  const [filterRateTypeId, setFilterRateTypeId]     = useState<number | null>(1);
+  const [filterRateTypeName, setFilterRateTypeName] = useState('MRP1');
   const [filterSubDeptId, setFilterSubDeptId]       = useState<number | null>(null);
   const [filterSubDeptName, setFilterSubDeptName]   = useState('');
+  const [filterMainTestId, setFilterMainTestId]     = useState<number | null>(null);
+  const [filterMainTestName, setFilterMainTestName] = useState('');
 
   // ── List state ──
   const [records, setRecords]   = useState<TestChargeRecord[]>([]);
@@ -100,21 +102,33 @@ export default function TestChargesScreen({ navigation }: any) {
   useEffect(() => {
     Promise.all([getAllRateTypes(), getAllSubDepts(), getPackages(1), getTestNames(1)])
       .then(([rt, sd, pkg, tn]) => {
-        setRateTypes(rt.map(r => ({ id: r.RateTypeId, label: r.RateTypeName, ...r } as any)));
-        setSubDepts(sd.map(s => ({ id: s.SubDeptId, label: s.SubDeptName, ...s } as any)));
-        setPackages(pkg);
-        setTestNames(tn);
+        setRateTypes(Array.isArray(rt) ? rt.map(r => ({ id: r.RateTypeId, label: r.RateTypeName, ...r } as any)) : []);
+        setSubDepts(Array.isArray(sd) ? sd.map(s => ({ id: s.SubDeptId, label: s.SubDeptName, ...s } as any)) : []);
+        setPackages(Array.isArray(pkg) ? pkg : []);
+        setTestNames(Array.isArray(tn) ? tn : []);
       })
-      .catch(() => {});
+      .catch(() => {
+        setPackages([]);
+      });
   }, []);
 
-  // ── Load on mount and focus — no filters required ──
-  const handleSearch = async (rateId?: number | null) => {
+  // ── Search with Rate Type, Sub Department & Main Test filters ──
+  const handleSearch = async (
+    rateId?: number | null,
+    subId?: number | null,
+    mainId?: number | null,
+  ) => {
     setLoading(true); setError(null);
     try {
-      const data = await getAllTestCharges(
-        rateId ? { RateTypeId: rateId } : { RateTypeId: 1 }
-      );
+      const rId = rateId !== undefined ? rateId : filterRateTypeId;
+      const sId = subId  !== undefined ? subId  : filterSubDeptId;
+      const mId = mainId !== undefined ? mainId : filterMainTestId;
+
+      const data = await getAllTestCharges({
+        RateTypeId: rId ?? 1,
+        SubDeptId:  sId ?? 0,
+        MainTestId: mId ?? 0,
+      });
       setRecords(data);
       setSearched(true);
     } catch (err: any) {
@@ -127,9 +141,11 @@ export default function TestChargesScreen({ navigation }: any) {
   useFocusEffect(useCallback(() => { handleSearch(); }, []));
 
   const handleClear = () => {
-    setFilterRateTypeId(null); setFilterRateTypeName('');
+    setFilterRateTypeId(1); setFilterRateTypeName('MRP1');
     setFilterSubDeptId(null);  setFilterSubDeptName('');
-    setRecords([]); setSearched(false); setSearch('');
+    setFilterMainTestId(null); setFilterMainTestName('');
+    setSearch('');
+    handleSearch(1, 0, 0);
   };
 
   const filtered = records.filter(r => {
@@ -268,9 +284,26 @@ export default function TestChargesScreen({ navigation }: any) {
               onSelect={(o: any) => { setFilterSubDeptId(o.id); setFilterSubDeptName(o.label); }}
               placeholder="Select Sub Department" />
 
+            {/* Main Test (Optional) */}
+            <DD label="Main Test (Optional)" value={filterMainTestName || 'ALL TESTS (OPTIONAL)'}
+              options={[
+                { id: 0, label: 'ALL TESTS (OPTIONAL)' },
+                ...(testNames || []).map(t => ({ id: t.MainTestId, label: t.MainTestName }))
+              ]}
+              onSelect={(o: any) => {
+                if (o.id === 0) {
+                  setFilterMainTestId(null);
+                  setFilterMainTestName('');
+                } else {
+                  setFilterMainTestId(o.id);
+                  setFilterMainTestName(o.label);
+                }
+              }}
+              placeholder="ALL TESTS (OPTIONAL)" />
+
             {/* Search + Clear */}
             <View style={st.filterBtns}>
-              <TouchableOpacity style={[st.searchBtn, loading && { opacity: 0.7 }]} onPress={() => handleSearch(filterRateTypeId)} disabled={loading}>
+              <TouchableOpacity style={[st.searchBtn, loading && { opacity: 0.7 }]} onPress={() => handleSearch(filterRateTypeId, filterSubDeptId, filterMainTestId)} disabled={loading}>
                 {loading ? <ActivityIndicator size={14} color="#FFF" /> : <Feather name="search" size={14} color="#FFF" />}
                 <Text style={st.searchBtnTxt}>{loading ? ' Searching…' : ' Search'}</Text>
               </TouchableOpacity>
@@ -286,8 +319,8 @@ export default function TestChargesScreen({ navigation }: any) {
         {searched && (
           <View style={[st.card, { marginTop: 14 }]}>
             <View style={st.resultsHeader}>
-              <Text style={st.resultsTitle}>Test Charges</Text>
-              <View style={st.badge}><Text style={st.badgeTxt}>{records.length} records</Text></View>
+              <Text style={st.resultsTitle}>Test Charges — {filterSubDeptName ? filterSubDeptName : 'All Tests in Sub Department'}</Text>
+              <View style={st.badge}><Text style={st.badgeTxt}>{filtered.length} records</Text></View>
             </View>
 
             <View style={st.listBody}>
@@ -311,7 +344,7 @@ export default function TestChargesScreen({ navigation }: any) {
                 </View>
               ) : (
                 filtered.map((item, idx) => (
-                  <View key={String(item.TestChargeId ?? idx)} style={st.row}>
+                  <View key={`tc-${item.TestChargeId ?? '0'}-${item.MainTestId ?? ''}-${item.MTCODE ?? ''}-${idx}`} style={st.row}>
                     <View style={st.rowIcon}>
                       <MaterialCommunityIcons name="flask-outline" size={18} color={COLORS.primary} />
                     </View>
@@ -430,7 +463,7 @@ export default function TestChargesScreen({ navigation }: any) {
                 placeholder="Select Rate Type" />
 
               <DD label="Package (Optional)" value={packageName}
-                options={[{ id: 0, label: 'None' }, ...packages.map(p => ({ id: p.PackageId, label: p.PackageName }))]}
+                options={[{ id: 0, label: 'None' }, ...(Array.isArray(packages) ? packages : []).map(p => ({ id: p.PackageId, label: p.PackageName }))]}
                 onSelect={(o: any) => { if (o.id === 0) { setPackageId(null); setPackageName(''); } else { setPackageId(o.id); setPackageName(o.label); } }}
                 placeholder="Select Package" />
 

@@ -333,7 +333,7 @@ export default function AppointmentListScreen({ navigation }: any) {
 
                 return (
                 <TouchableOpacity 
-                  key={String(item.AppointmentId ?? idx)} 
+                  key={`appt-${item.AppointmentId || ''}-${idx}`} 
                   style={[
                     styles.apptRow,
                     isUnregistered && { backgroundColor: '#FFF7ED', borderColor: '#F97316', borderWidth: 1, borderRadius: 10, marginVertical: 4, paddingHorizontal: 10 }
