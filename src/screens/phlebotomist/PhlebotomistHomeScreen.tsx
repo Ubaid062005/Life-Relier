@@ -195,8 +195,10 @@ export default function PhlebotomistHomeScreen({ navigation }: any) {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
                   body: JSON.stringify({
+                    Action: 'ACCEPT',
                     Patmstid: Number(patmstid),
                     BranchId: 1,
+                    UpdatedBy: collectorName,
                     UserName: collectorName,
                     PhleboName: collectorName,
                     PhlebotomistName: collectorName,

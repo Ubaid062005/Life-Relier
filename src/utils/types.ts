@@ -3,6 +3,7 @@ export type UserRole = 'admin' | 'patient' | 'phlebotomist' | 'refdoctor' | 'doc
 export interface User {
   id: string;
   name: string;
+  username?: string;
   email: string;
   role: UserRole;
   phone?: string;

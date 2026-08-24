@@ -143,11 +143,12 @@ export async function loginUser(
   const fullNameStr = raw.firstName ? `${raw.firstName} ${raw.lastName || ''}`.trim() : null;
   
   const user: User = {
-    id:    String(raw.userId || raw.UserId || nested.id || nested.Id || raw.id || ''),
-    name:  String(fullNameStr || raw.employeeName || raw.EmployeeName || raw.fullName || raw.FullName || nested.name || nested.Name || raw.name || raw.userName || raw.UserName || credentials.username),
-    email: String(raw.email || raw.Email || nested.email || nested.Email || ''),
+    id:       String(raw.userId || raw.UserId || nested.id || nested.Id || raw.id || ''),
+    name:     String(fullNameStr || raw.employeeName || raw.EmployeeName || raw.fullName || raw.FullName || nested.name || nested.Name || raw.name || raw.userName || raw.UserName || credentials.username),
+    username: String(raw.userName || raw.UserName || raw.loginName || raw.LoginName || raw.name || credentials.username || ''),
+    email:    String(raw.email || raw.Email || nested.email || nested.Email || ''),
     role,
-    phone: raw.mobile || raw.Mobile || raw.mobileNo || raw.MobileNo || raw.phone || raw.Phone || nested.phone || undefined,
+    phone:    raw.mobile || raw.Mobile || raw.mobileNo || raw.MobileNo || raw.phone || raw.Phone || nested.phone || undefined,
   };
 
   return { user, token, role };
